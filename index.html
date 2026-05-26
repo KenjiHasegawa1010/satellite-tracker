@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Satellite Tracker</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/5.0.0/satellite.min.js"></script>
+
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --panel-bg: #111827;
+      --panel-soft: #1f2937;
+      --accent-blue: #38bdf8;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-orange: #f97316;
+      --text-color: #f3f4f6;
+      --muted: #9ca3af;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #header {
+      background: var(--panel-bg);
+      padding: 14px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 2px solid #1f2937;
+    }
+
+    h2 { margin: 0; font-size: 1.2rem; white-space: nowrap; }
+
+    #header-controls {
+      grid-column: 2;
+      justify-self: center;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #header-controls select {
+      min-width: 240px;
+    }
+
+    #header-controls button,
+    #header-controls select {
+      min-height: 40px;
+    }
+
+    select, button, textarea {
+      background: #1f2937;
+      color: var(--text-color);
+      border: 1px solid var(--accent-blue);
+      border-radius: 6px;
+      font-size: 0.92rem;
+    }
+
+    select, button {
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 115px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      resize: vertical;
+      border-color: #374151;
+    }
+
+    button:hover, select:hover { background: #374151; }
+    button.secondary { border-color: #6b7280; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .ok-text   { color: var(--accent-green)  !important; }
+    .warn-text { color: var(--accent-yellow) !important; }
+    .bad-text  { color: var(--accent-red)    !important; }
+    .info-text { color: var(--accent-blue)   !important; }
+
+    #main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #map {
+      flex: 2;
+      height: 100%;
+      min-width: 0;
+    }
+
+    #sidebar {
+      flex: 1;
+      background: var(--panel-bg);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+      box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+      min-width: 360px;
+      max-width: 500px;
+    }
+
+    .card {
+      background: rgba(17,24,39,0.9);
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+    }
+
+    .card-title {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      letter-spacing: 0.05em;
+    }
+
+    .card-value {
+      font-size: 1.2rem;
+      font-weight: bold;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    #visibility-card {
+      text-align: center;
+      padding: 18px;
+      border-width: 2px;
+    }
+
+    .visible-true  { border-color: var(--accent-green);  background: rgba(16,185,129,0.10); color: var(--accent-green);  }
+    .visible-low   { border-color: var(--accent-yellow); background: rgba(245,158,11,0.10); color: var(--accent-yellow); }
+    .visible-false, .visible-error { border-color: var(--accent-red); background: rgba(239,68,68,0.10); color: var(--accent-red); }
+
+    .status-row {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 5px;
+      line-height: 1.45;
+    }
+
+    .status-row span {
+      color: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .small-note {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+
+    /* ── 改善①：インメモリキャッシュ状態表示バナー ── */
+    #cache-banner {
+      display: none;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      border-radius: 6px;
+      background: rgba(56,189,248,0.12);
+      border: 1px solid var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    /* ── 改善②：QZS精度警告バナー ── */
+    #tle-accuracy-warning {
+      display: none;
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      border-radius: 6px;
+      background: rgba(249,115,22,0.12);
+      border: 1px solid var(--accent-orange);
+      color: var(--accent-orange);
+      line-height: 1.5;
+    }
+
+    /* ── 改善④：次回パス一覧テーブル ── */
+    #pass-forecast-card { display: none; }
+
+    #pass-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      margin-top: 8px;
+    }
+
+    #pass-table th {
+      color: var(--muted);
+      font-weight: 600;
+      text-align: left;
+      padding: 4px 6px;
+      border-bottom: 1px solid #374151;
+    }
+
+    #pass-table td {
+      padding: 5px 6px;
+      border-bottom: 1px solid #1f2937;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      vertical-align: top;
+    }
+
+    #pass-table tr:last-child td { border-bottom: none; }
+
+    .pass-el-high { color: var(--accent-green); }
+    .pass-el-mid  { color: var(--accent-yellow); }
+    .pass-el-low  { color: var(--muted); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      border: 1px solid #374151;
+      color: #d1d5db;
+      margin-top: 6px;
+      word-break: break-word;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 5px;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    #manual-tle-panel { display: none; }
+    #manual-tle-panel.open { display: block; }
+
+    /* ── 改善③：プロキシ状態表示 ── */
+    .proxy-chip {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.73rem;
+      font-family: ui-monospace, monospace;
+      margin-left: 4px;
+      background: rgba(56,189,248,0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56,189,248,0.3);
+    }
+
+    .proxy-chip.warn {
+      background: rgba(245,158,11,0.15);
+      color: var(--accent-yellow);
+      border-color: rgba(245,158,11,0.3);
+    }
+
+    .proxy-chip.ok {
+      background: rgba(16,185,129,0.15);
+      color: var(--accent-green);
+      border-color: rgba(16,185,129,0.3);
+    }
+
+
+    /* ── アプリ仕様メモ ── */
+    .spec-note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(31, 41, 55, 0.55);
+      border: 1px solid #374151;
+    }
+
+    .spec-note-title {
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 6px;
+      letter-spacing: 0.03em;
+    }
+
+    .spec-list,
+    .spec-list ul,
+    .spec-list ol {
+      margin: 6px 0 0 1.1rem;
+      padding: 0;
+    }
+
+    .spec-list li {
+      margin: 4px 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+
+    .spec-list strong {
+      color: var(--text-color);
+      font-weight: 600;
+    }
+
+    @media (max-width: 900px) {
+      #header {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        text-align: center;
+      }
+
+      #header-controls {
+        grid-column: 1;
+        width: 100%;
+      }
+
+      #header-controls select,
+      #header-controls button {
+        flex: 1 1 180px;
+      }
+
+      #main-container { flex-direction: column; }
+      #map { min-height: 54vh; }
+      #sidebar { max-width: none; min-width: auto; }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="header">
+    <h2>🛰️ Satellite Tracker</h2>
+    <div id="header-controls">
+      <select id="satellite-selector">
+        <option value="iss">ISS / 国際宇宙ステーション</option>
+        <option value="hubble">Hubble / ハッブル宇宙望遠鏡</option>
+        <option value="qzs1r">QZS-1R / みちびき後継機 ⚠️</option>
+        <option value="qzs1">QZS-1 / みちびき初号機 ⚠️</option>
+      </select>
+      <button id="gps-button">📍 現在地を取得</button>
+      <button id="tle-button">🔄 TLE更新</button>
+    </div>
+  </div>
+
+  <div id="main-container">
+    <div id="map"></div>
+
+    <div id="sidebar">
+
+      <!-- 改善①：キャッシュバナー -->
+      <div id="cache-banner"></div>
+
+      <!-- 可視判定カード -->
+      <div id="visibility-card" class="card visible-false">
+        <div class="card-title" style="color:inherit;">現在の可視状態 / Current Visibility</div>
+        <div id="vis-status" style="font-size:1.65rem;font-weight:bold;">判定中...</div>
+        <div id="vis-note" class="small-note" style="margin-top:8px;"></div>
+      </div>
+
+      <!-- Look Angles -->
+      <div class="card" style="border-left:4px solid var(--accent-blue);">
+        <div class="card-title">あなたから見上げたデータ / Look Angles</div>
+        <div class="grid-2">
+          <div>
+            <span style="font-size:0.75rem;color:#9ca3af;">仰角 / Elevation</span>
+            <div id="look-el" class="card-value">-°</div>
+          </div>
+          <div>
+            <span style="font-size:0.75rem;color:#9ca3af;">方位角 / Azimuth</span>
+            <div id="look-az" class="card-value">-°</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <span style="font-size:0.75rem;color:#9ca3af;">直線距離 / Range</span>
+          <div id="look-range" class="card-value">- km</div>
+        </div>
+      </div>
+
+      <!-- 衛星ステータス -->
+      <div class="card">
+        <div class="card-title">衛星の基本ステータス / Satellite Status</div>
+        <div class="status-row">現在位置: <span id="sat-coords">-</span></div>
+        <div class="status-row">高度: <span id="sat-alt">-</span></div>
+        <div class="status-row">速度: <span id="sat-vel">-</span></div>
+        <div class="status-row">次回の肉眼可視候補: <span id="next-pass">計算中...</span></div>
+      </div>
+
+      <!-- 改善④：パス予報一覧 -->
+      <div id="pass-forecast-card" class="card">
+        <div class="card-title">次回パス予報 / Upcoming Passes <span style="color:var(--muted);font-size:0.72rem;text-transform:none;font-weight:normal;">(最大5件 / up to 5)</span></div>
+        <table id="pass-table">
+          <thead>
+            <tr>
+              <th>開始時刻</th>
+              <th>最大仰角</th>
+              <th>継続</th>
+              <th>条件</th>
+            </tr>
+          </thead>
+          <tbody id="pass-tbody"></tbody>
+        </table>
+        <div class="small-note" style="margin-top:8px;" id="pass-forecast-note"></div>
+      </div>
+
+      <!-- 太陽・地球影 -->
+      <div class="card" style="border-left:4px solid var(--accent-yellow);">
+        <div class="card-title">太陽・地球影判定 / Sun & Shadow</div>
+        <div class="status-row">観測地の太陽高度: <span id="sun-el">-</span></div>
+        <div class="status-row">観測地の明暗: <span id="observer-light">-</span></div>
+        <div class="status-row">衛星の太陽照射: <span id="sat-sunlit">-</span></div>
+        <div class="status-row">地球影判定: <span id="earth-shadow">-</span></div>
+        <div class="small-note" style="margin-top:8px;">
+          肉眼可視は「仰角10°以上」「観測地が暗い」「衛星が太陽照射中」「衛星が地球影の外」を満たす場合に強く推定します。
+        </div>
+      </div>
+
+      <!-- 観測地点 -->
+      <div class="card">
+        <div class="card-title">観測地点 / Observer Station</div>
+        <div id="station-coords" class="card-value" style="font-size:1.05rem;">35.6895, 139.6917, 0.000 km</div>
+        <div class="small-note">初期値は東京です。GPS取得後、現在地に切り替わります。</div>
+      </div>
+
+      <!-- 改善②：QZS精度警告 -->
+      <div id="tle-accuracy-warning">
+        ⚠️ <strong>フォールバックTLE使用中</strong>：この衛星のTLE取得に失敗しました。内蔵の概算値を使用しており、<strong>軌道位置・通過予報の精度が大幅に低下</strong>しています。「TLE更新」ボタンで再取得するか、Space-Track.org / CelesTrak からTLEを手動入力してください。
+      </div>
+
+      <!-- TLEステータス -->
+      <div class="card">
+        <div class="card-title">TLEステータス / TLE Status</div>
+        <div class="status-row">
+          取得元: <span id="tle-source">初期化中...</span>
+          <span id="proxy-chip" class="proxy-chip" style="display:none;"></span>
+        </div>
+        <div class="status-row">チェックサム: <span id="tle-checksum">-</span></div>
+        <div class="status-row">取得/読込時刻: <span id="tle-updated">-</span></div>
+        <div class="status-row">TLE Epoch: <span id="tle-epoch">-</span></div>
+        <!-- 改善①：キャッシュタイプ表示 -->
+        <div class="status-row">キャッシュ: <span id="cache-type" class="info-text">-</span></div>
+        <div id="tle-name" class="badge">-</div>
+
+        <div class="button-row">
+          <button id="manual-toggle-button" class="secondary">✍️ 手動TLE入力</button>
+          <button id="cache-clear-button" class="secondary">🧹 メモリキャッシュ削除</button>
+        </div>
+
+        <div id="manual-tle-panel" style="margin-top:10px;">
+          <div class="small-note" style="margin-bottom:6px;">
+            3行形式で貼り付けてください。1行目: 衛星名、2行目: TLE Line 1、3行目: TLE Line 2
+          </div>
+          <textarea id="manual-tle-text" placeholder="ISS (ZARYA)
+1 25544U ...
+2 25544 ..."></textarea>
+          <div class="button-row">
+            <button id="manual-apply-button">適用</button>
+          </div>
+        </div>
+
+        <div class="spec-note">
+          <div class="spec-note-title">アプリ仕様メモ / App Specification Notes</div>
+          <ul class="spec-list">
+            <li>
+              <strong>TLEキャッシュ</strong>
+              <ul>
+                <li>TLEデータはセッション内メモリに保存します。</li>
+                <li>localStorage は使用していません。</li>
+                <li>ページを再読み込みするとキャッシュはリセットされます。</li>
+              </ul>
+            </li>
+            <li>
+              <strong>TLE取得フロー</strong>
+              <ol>
+                <li>CelesTrak 直接取得</li>
+                <li>corsproxy.io 経由</li>
+                <li>allorigins 経由</li>
+                <li>内蔵フォールバックTLE</li>
+              </ol>
+            </li>
+            <li>
+              <strong>肉眼可視判定</strong>
+              <ul>
+                <li>判定には簡易天文計算を使用しています。</li>
+                <li>軌道計算は SGP4 を使用しています。</li>
+                <li>太陽照射および地球影の簡易判定を含みます。</li>
+              </ul>
+            </li>
+            <li>
+              <strong>本番運用時の注意</strong>
+              <ul>
+                <li>公開プロキシは検証用途です。</li>
+                <li>本番運用では、自前APIプロキシの利用を推奨します。</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ─────────────────────────────────────────────
+    // 衛星定義
+    // ⚠️ QZSフォールバックは軌道要素が概算値のため精度低（改善②）
+    // ─────────────────────────────────────────────
+    const SATELLITES = {
+      iss: {
+        label: "ISS / 国際宇宙ステーション",
+        catnr: "25544",
+        orbitType: "leo",          // 改善④：軌道種別
+        fallbackName: "ISS (ZARYA)",
+        fallbackTle1: "1 25544U 98067A   26143.52077593  .00014769  00000+0  26322-3 0  9993",
+        fallbackTle2: "2 25544  51.6416 193.2135 0001719  99.3475 329.8378 15.49479373568846",
+        fallbackAccurate: true     // 内蔵TLEの信頼性フラグ
+      },
+      hubble: {
+        label: "Hubble / ハッブル宇宙望遠鏡",
+        catnr: "20580",
+        orbitType: "leo",
+        fallbackName: "HST",
+        fallbackTle1: "1 20580U 90037B   26143.11024512  .00000412  00000+0  14521-4 0  9992",
+        fallbackTle2: "2 20580  28.4690  55.1240 0002810 120.4500 240.1200 14.92110000 99996",
+        fallbackAccurate: true
+      },
+      // ⚠️ 改善②：QZSはフォールバック精度が低いことを明示
+      qzs1r: {
+        label: "QZS-1R / みちびき後継機",
+        catnr: "49336",
+        orbitType: "qzss",         // 準天頂軌道
+        fallbackName: "QZS-1R",
+        // 準天頂軌道: i≒41°, e≒0.075, 周期≒23.9h, 経度≒135°E
+        fallbackTle1: "1 49336U 21096A   26143.00000000 -.00000100  00000+0  00000+0 0  9998",
+        fallbackTle2: "2 49336  41.0000 140.0000 0750000 270.0000  90.0000  1.00270000 10008",
+        fallbackAccurate: false    // ← 軌道要素が概算値のため位置精度が低い
+      },
+      qzs1: {
+        label: "QZS-1 / みちびき初号機",
+        catnr: "37158",
+        orbitType: "qzss",
+        fallbackName: "QZS-1 (MICHIBIKI)",
+        fallbackTle1: "1 37158U 10045A   26143.00000000 -.00000100  00000+0  00000+0 0  9991",
+        fallbackTle2: "2 37158  43.0000 140.0000 0750000 270.0000  90.0000  1.00270000 50001",
+        fallbackAccurate: false
+      }
+    };
+
+    // ─────────────────────────────────────────────
+    // 定数
+    // ─────────────────────────────────────────────
+    const ORBIT_REFRESH_MS          = 10 * 1000;
+    const NEXT_PASS_REFRESH_MS      = 60 * 1000;
+    const EARTH_RADIUS_KM           = 6378.137;
+    const ASTRONOMICAL_UNIT_KM      = 149597870.7;
+    const PRACTICAL_ELEVATION_DEG   = 10;
+    const OBSERVER_DARK_SUN_EL_DEG  = -6;
+
+    // ─────────────────────────────────────────────
+    // 改善①：localStorage の代わりにインメモリキャッシュ
+    // セッション中は保持。ページリロードで消えるが Artifact 環境でも動作する。
+    // ─────────────────────────────────────────────
+    const TLE_MEM_CACHE     = {};
+    const TLE_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
+
+    function saveTleToCache(key, tle) {
+      TLE_MEM_CACHE[key] = { ...tle, cachedAt: Date.now() };
+    }
+
+    function loadTleFromCache(key, allowExpired = false) {
+      const entry = TLE_MEM_CACHE[key];
+      if (!entry) return null;
+      const age = Date.now() - entry.cachedAt;
+      if (!allowExpired && age > TLE_CACHE_MAX_AGE) return null;
+      return {
+        name: entry.name,
+        tle1: entry.tle1,
+        tle2: entry.tle2,
+        source: allowExpired ? `${entry.source} / 期限切れキャッシュ` : `${entry.source} / キャッシュ`,
+        loadedAt: entry.loadedAt || new Date(entry.cachedAt).toISOString(),
+        cacheType: "memory"
+      };
+    }
+
+    function clearAllCache() {
+      Object.keys(TLE_MEM_CACHE).forEach(k => delete TLE_MEM_CACHE[k]);
+    }
+
+    function updateCacheBanner() {
+      const keys = Object.keys(TLE_MEM_CACHE);
+      const banner = $("cache-banner");
+      if (keys.length === 0) {
+        banner.style.display = "none";
+      } else {
+        banner.style.display = "block";
+        banner.textContent = `💾 メモリキャッシュ: ${keys.map(k => SATELLITES[k]?.label?.split("/")[0]?.trim() || k).join(", ")} — ページ更新でリセット`;
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 状態変数
+    // ─────────────────────────────────────────────
+    let observerCoords = { lat: 35.6895, lng: 139.6917, alt: 0.0 };
+    let currentKey     = "iss";
+    let currentTle     = null;
+    let currentSatrec  = null;
+    let orbitLines     = [];
+    let satMarker      = null;
+    let stationMarker  = null;
+    let lastOrbitDrawAt    = 0;
+    let lastNextPassCalcAt = 0;
+
+    const $ = id => document.getElementById(id);
+
+    // ─────────────────────────────────────────────
+    // Leaflet マップ初期化
+    // ─────────────────────────────────────────────
+    const map = L.map("map").setView([20, 130], 3);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: "© OpenStreetMap © CARTO",
+      subdomains: "abcd",
+      maxZoom: 19
+    }).addTo(map);
+
+    stationMarker = L.marker([observerCoords.lat, observerCoords.lng])
+      .addTo(map)
+      .bindPopup("観測地点 / Observer Station")
+      .openPopup();
+
+    // ─────────────────────────────────────────────
+    // イベント登録
+    // ─────────────────────────────────────────────
+    document.addEventListener("DOMContentLoaded", async () => {
+      $("satellite-selector").addEventListener("change", async e => {
+        currentKey = e.target.value;
+        await loadSatellite(currentKey, true, { forceRefresh: false });
+      });
+
+      $("gps-button").addEventListener("click", getGPSLocation);
+
+      $("tle-button").addEventListener("click", async () => {
+        await loadSatellite(currentKey, true, { forceRefresh: true });
+      });
+
+      $("manual-toggle-button").addEventListener("click", () => {
+        $("manual-tle-panel").classList.toggle("open");
+      });
+
+      $("manual-apply-button").addEventListener("click", applyManualTle);
+
+      // 改善①：メモリキャッシュ削除ボタン
+      $("cache-clear-button").addEventListener("click", async () => {
+        clearAllCache();
+        updateCacheBanner();
+        $("cache-type").textContent = "なし";
+        await loadSatellite(currentKey, true, { forceRefresh: true });
+      });
+
+      await loadSatellite(currentKey, true, { forceRefresh: false });
+      updateTracker();
+      setInterval(updateTracker, 1000);
+    });
+
+    // ─────────────────────────────────────────────
+    // 改善③：TLE取得 プロキシ優先度チェーン
+    //   1. CelesTrak Direct
+    //   2. corsproxy.io  (より安定したオープンプロキシ)
+    //   3. allorigins.win (バックアップ)
+    //   4. メモリキャッシュ（期限切れ許容）
+    //   5. 内蔵フォールバック
+    // ─────────────────────────────────────────────
+    async function fetchTleWithFallbacks(key) {
+      const sat = SATELLITES[key];
+      const targetUrl = `https://celestrak.org/NORAD/elements/gp.php?CATNR=${encodeURIComponent(sat.catnr)}&FORMAT=TLE`;
+
+      const sources = [
+        { label: "CelesTrak Direct",  proxyLabel: null,          url: targetUrl },
+        { label: "corsproxy.io",      proxyLabel: "corsproxy.io", url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` },
+        { label: "allorigins.win",    proxyLabel: "allorigins",   url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` }
+      ];
+
+      for (const src of sources) {
+        try {
+          const text = await fetchTextWithTimeout(src.url, 9000);
+          const parsed = parseTleText(text, src.label);
+          if (parsed) {
+            saveTleToCache(key, { ...parsed, proxyLabel: src.proxyLabel });
+            updateCacheBanner();
+            updateProxyChip(src.proxyLabel);
+            return { ...parsed, proxyLabel: src.proxyLabel };
+          }
+        } catch (err) {
+          console.warn(`${src.label} からのTLE取得に失敗:`, err);
+        }
+      }
+
+      // キャッシュ期限切れでも許容
+      const cached = loadTleFromCache(key, true);
+      if (cached) {
+        updateProxyChip(cached.proxyLabel || null, true);
+        return cached;
+      }
+
+      // 改善②：フォールバック使用時は精度フラグを付与
+      updateProxyChip(null);
+      return {
+        name: sat.fallbackName,
+        tle1: sat.fallbackTle1,
+        tle2: sat.fallbackTle2,
+        source: "内蔵フォールバック",
+        loadedAt: new Date().toISOString(),
+        isFallback: true,
+        fallbackAccurate: sat.fallbackAccurate
+      };
+    }
+
+    function updateProxyChip(proxyLabel, isExpiredCache = false) {
+      const chip = $("proxy-chip");
+      if (!proxyLabel && !isExpiredCache) {
+        chip.style.display = "none";
+        return;
+      }
+      chip.style.display = "inline-block";
+      if (isExpiredCache) {
+        chip.textContent = "期限切れキャッシュ";
+        chip.className = "proxy-chip warn";
+      } else if (proxyLabel === "CelesTrak Direct" || proxyLabel === null) {
+        chip.style.display = "none";
+      } else {
+        chip.textContent = `via ${proxyLabel}`;
+        chip.className = "proxy-chip ok";
+      }
+    }
+
+    async function fetchTextWithTimeout(url, timeoutMs) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.text();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 衛星読み込み
+    // ─────────────────────────────────────────────
+    async function loadSatellite(key, panMap, options = {}) {
+      const sat = SATELLITES[key];
+      const tleButton = $("tle-button");
+
+      tleButton.disabled = true;
+      tleButton.innerText = "⏳ TLE読込中";
+      setTleStatus("読込中...", "-", "-", "-");
+      $("tle-name").innerText = sat.label;
+      $("tle-accuracy-warning").style.display = "none";
+      $("pass-forecast-card").style.display = "none";
+
+      let loadedTle = null;
+      if (!options.forceRefresh) {
+        loadedTle = loadTleFromCache(key);
+      }
+
+      if (!loadedTle) {
+        loadedTle = await fetchTleWithFallbacks(key);
+      }
+
+      currentTle = loadedTle;
+      currentSatrec = buildSatrec(currentTle);
+
+      if (satMarker) { map.removeLayer(satMarker); satMarker = null; }
+      clearOrbitLines();
+      lastOrbitDrawAt    = 0;
+      lastNextPassCalcAt = 0;
+
+      updateTleUi(currentTle);
+
+      // 改善②：フォールバックかつ低精度なら警告表示
+      if (currentTle.isFallback && !currentTle.fallbackAccurate) {
+        $("tle-accuracy-warning").style.display = "block";
+      }
+
+      // 改善①：キャッシュタイプ表示
+      $("cache-type").textContent = currentTle.cacheType === "memory"
+        ? "メモリキャッシュ（セッション中）"
+        : currentTle.source.includes("フォールバック")
+          ? "なし（フォールバック使用）"
+          : "未キャッシュ（新規取得）";
+
+      updateTracker();
+
+      if (panMap && satMarker) {
+        map.panTo(satMarker.getLatLng());
+      }
+
+      tleButton.disabled = false;
+      tleButton.innerText = "🔄 TLE更新";
+    }
+
+    // ─────────────────────────────────────────────
+    // メイン更新ループ
+    // ─────────────────────────────────────────────
+    function updateTracker() {
+      if (!currentSatrec || !currentTle) return;
+      const now   = new Date();
+      const state = getSatelliteState(now);
+
+      if (!state) {
+        setVisibility("error", "⚠️ 計算不可", "TLEが古い、または軌道計算に失敗しました。");
+        return;
+      }
+
+      updateSatelliteMarker(state.satLat, state.satLng);
+
+      $("sat-coords").innerText  = `${state.satLat.toFixed(4)}, ${state.satLng.toFixed(4)}`;
+      $("sat-alt").innerText     = `${Math.round(state.satAlt).toLocaleString()} km`;
+      $("sat-vel").innerText     = `${state.satVel.toFixed(2)} km/s`;
+      $("look-el").innerText     = `${state.elevation.toFixed(2)}°`;
+      $("look-az").innerText     = `${state.azimuth.toFixed(2)}°（${getCompassDirection(state.azimuth)}）`;
+      $("look-range").innerText  = `${Math.round(state.rangeSat).toLocaleString()} km`;
+
+      updateAstronomyUi(state);
+      updateVisibility(state);
+
+      const nowMs = Date.now();
+
+      if (nowMs - lastOrbitDrawAt > ORBIT_REFRESH_MS) {
+        drawOrbitLine(now);
+        lastOrbitDrawAt = nowMs;
+      }
+
+      if (nowMs - lastNextPassCalcAt > NEXT_PASS_REFRESH_MS) {
+        computeAndShowPasses(now);
+        lastNextPassCalcAt = nowMs;
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 衛星状態計算
+    // ─────────────────────────────────────────────
+    function getSatelliteState(date) {
+      const pv = satellite.propagate(currentSatrec, date);
+      if (!pv.position || !pv.velocity) return null;
+
+      const gmst    = satellite.gstime(date);
+      const posEcf  = satellite.eciToEcf(pv.position, gmst);
+      const posGd   = satellite.eciToGeodetic(pv.position, gmst);
+
+      const satLat  = satellite.degreesLat(posGd.latitude);
+      const satLng  = normalizeLongitude(satellite.degreesLong(posGd.longitude));
+      const satAlt  = posGd.height;
+      const satVel  = Math.sqrt(pv.velocity.x**2 + pv.velocity.y**2 + pv.velocity.z**2);
+
+      const obsGd = {
+        latitude:  toRadians(observerCoords.lat),
+        longitude: toRadians(observerCoords.lng),
+        height:    observerCoords.alt
+      };
+
+      const lookAngles = satellite.ecfToLookAngles(obsGd, posEcf);
+      const sun        = getSunState(date, gmst, obsGd, pv.position);
+      const elevation  = toDegrees(lookAngles.elevation);
+      const azimuth    = normalizeAzimuth(toDegrees(lookAngles.azimuth));
+
+      return {
+        satLat, satLng, satAlt, satVel,
+        azimuth, elevation,
+        rangeSat: lookAngles.rangeSat,
+        sunElevation: sun.sunElevation,
+        observerIsDark: sun.observerIsDark,
+        satelliteSunlit: sun.satelliteSunlit,
+        satelliteInEarthShadow: sun.satelliteInEarthShadow,
+        visuallyObservable:
+          elevation >= PRACTICAL_ELEVATION_DEG &&
+          sun.observerIsDark &&
+          sun.satelliteSunlit &&
+          !sun.satelliteInEarthShadow
+      };
+    }
+
+    // ─────────────────────────────────────────────
+    // 改善④：次回パス計算（軌道種別で戦略分岐）
+    //   LEO (ISS, Hubble, ADRAS-J):
+    //     周期 ~90-110min。1分ステップで24時間をスキャン。
+    //   QZSS (みちびき):
+    //     周期 ~23.9h。4分ステップで72時間をスキャン。仰角だけを記録し
+    //     「高仰角エリア（地上で最も有利な時間帯）」をパスとして報告。
+    //   フォールバック精度フラグがある場合は注記を追加。
+    // ─────────────────────────────────────────────
+    function computeAndShowPasses(now) {
+      if (!currentSatrec) return;
+      const sat  = SATELLITES[currentKey];
+      const type = sat.orbitType;
+
+      let passes = [];
+      let noteText = "";
+
+      if (type === "qzss") {
+        passes   = computeQzssPasses(now);
+        noteText = "準天頂軌道は長周期のため72時間スキャン。仰角の山をパスとして表示します。";
+        if (currentTle.isFallback && !currentTle.fallbackAccurate) {
+          noteText += " ⚠️ フォールバックTLE使用中のため予報精度は参考値です。";
+        }
+      } else {
+        passes   = computeLeoPasses(now);
+        noteText = "LEO衛星は1分ステップで24時間以内のパスを予報します。";
+      }
+
+      renderPassTable(passes, noteText);
+
+      // next-pass に最初の可視パスを表示
+      const firstVisible = passes.find(p => p.visible);
+      if (firstVisible) {
+        $("next-pass").innerText = `${formatDateTime(firstVisible.start)} / 最大仰角 約${firstVisible.maxEl.toFixed(1)}°`;
+      } else if (passes.length > 0) {
+        const first = passes[0];
+        $("next-pass").innerText = type === "qzss"
+          ? `${formatDateTime(first.start)} 頃 / 最大仰角 約${first.maxEl.toFixed(1)}° (昼間帯)`
+          : "24時間以内に肉眼可視条件を満たす候補なし";
+      } else {
+        $("next-pass").innerText = "パスが見つかりませんでした";
+      }
+    }
+
+    // LEO: 1分ステップ、24h、最大5パス
+    function computeLeoPasses() {
+      const now     = new Date();
+      const stepMs  = 60 * 1000;
+      const maxMs   = 24 * 60 * 60 * 1000;
+      const results = [];
+      let inPass    = false;
+      let passStart, passMaxEl, passMaxElTime, passStartVisible;
+      let passEndTime;
+
+      for (let t = 0; t <= maxMs; t += stepMs) {
+        const date  = new Date(now.getTime() + t);
+        const state = getSatelliteState(date);
+        if (!state) continue;
+
+        const above = state.elevation >= PRACTICAL_ELEVATION_DEG;
+
+        if (above && !inPass) {
+          inPass         = true;
+          passStart      = date;
+          passMaxEl      = state.elevation;
+          passMaxElTime  = date;
+          passStartVisible = state.visuallyObservable;
+        } else if (above && inPass) {
+          if (state.elevation > passMaxEl) {
+            passMaxEl     = state.elevation;
+            passMaxElTime = date;
+          }
+          if (state.visuallyObservable) passStartVisible = true;
+        } else if (!above && inPass) {
+          inPass     = false;
+          passEndTime = date;
+          const dur  = Math.round((passEndTime - passStart) / 1000 / 60);
+          results.push({
+            start:   passStart,
+            end:     passEndTime,
+            maxEl:   passMaxEl,
+            maxElAt: passMaxElTime,
+            dur,
+            visible: passStartVisible
+          });
+          if (results.length >= 5) break;
+        }
+      }
+      return results;
+    }
+
+    // QZSS: 4分ステップ、72h、仰角のピークをパスとして抽出（最大5件）
+    function computeQzssPasses() {
+      const now      = new Date();
+      const stepMs   = 4 * 60 * 1000;
+      const maxMs    = 72 * 60 * 60 * 1000;
+      const minEl    = 20;       // 実用的な低仰角閾値（QZSS向け）
+      const results  = [];
+      let inPass     = false;
+      let passStart, passMaxEl, passMaxElTime, anyVisible;
+      let passEndTime;
+
+      for (let t = 0; t <= maxMs; t += stepMs) {
+        const date  = new Date(now.getTime() + t);
+        const state = getSatelliteState(date);
+        if (!state) continue;
+
+        const above = state.elevation >= minEl;
+
+        if (above && !inPass) {
+          inPass        = true;
+          passStart     = date;
+          passMaxEl     = state.elevation;
+          passMaxElTime = date;
+          anyVisible    = state.visuallyObservable;
+        } else if (above && inPass) {
+          if (state.elevation > passMaxEl) {
+            passMaxEl     = state.elevation;
+            passMaxElTime = date;
+          }
+          if (state.visuallyObservable) anyVisible = true;
+        } else if (!above && inPass) {
+          inPass      = false;
+          passEndTime = date;
+          const dur   = Math.round((passEndTime - passStart) / 60000);
+          results.push({
+            start:   passStart,
+            end:     passEndTime,
+            maxEl:   passMaxEl,
+            maxElAt: passMaxElTime,
+            dur,
+            visible: anyVisible
+          });
+          if (results.length >= 5) break;
+        }
+      }
+      return results;
+    }
+
+    function renderPassTable(passes, noteText) {
+      const card  = $("pass-forecast-card");
+      const tbody = $("pass-tbody");
+      const note  = $("pass-forecast-note");
+
+      tbody.innerHTML = "";
+      note.textContent = noteText;
+
+      if (passes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:10px;">パスなし</td></tr>`;
+        card.style.display = "block";
+        return;
+      }
+
+      passes.forEach(p => {
+        const elClass  = p.maxEl >= 60 ? "pass-el-high" : p.maxEl >= 30 ? "pass-el-mid" : "pass-el-low";
+        const condText = p.visible
+          ? `<span style="color:var(--accent-green);">🌟 可視候補</span>`
+          : `<span style="color:var(--muted);">昼間帯</span>`;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${formatDateTime(p.start)}</td>
+          <td class="${elClass}">${p.maxEl.toFixed(1)}°</td>
+          <td>${p.dur}分</td>
+          <td>${condText}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      card.style.display = "block";
+    }
+
+    // ─────────────────────────────────────────────
+    // UI 更新ヘルパー
+    // ─────────────────────────────────────────────
+    function updateSatelliteMarker(lat, lng) {
+      if (satMarker) {
+        satMarker.setLatLng([lat, lng]);
+      } else {
+        satMarker = L.circleMarker([lat, lng], {
+          radius: 9, color: "#38bdf8", fillColor: "#0ea5e9", fillOpacity: 1
+        }).addTo(map).bindPopup("衛星 / Satellite");
+      }
+    }
+
+    function updateAstronomyUi(state) {
+      $("sun-el").innerText        = `${state.sunElevation.toFixed(2)}°`;
+      $("observer-light").innerText = state.observerIsDark ? "暗い / Dark enough" : "明るい / Too bright";
+      $("sat-sunlit").innerText     = state.satelliteSunlit ? "照射中 / Sunlit" : "非照射 / Not sunlit";
+      $("earth-shadow").innerText   = state.satelliteInEarthShadow ? "地球影の中 / In Earth shadow" : "地球影の外 / Outside shadow";
+    }
+
+    function updateVisibility(state) {
+      const blockers = [];
+      if (state.elevation < PRACTICAL_ELEVATION_DEG)
+        blockers.push(state.elevation >= 0 ? "仰角が低い" : "地平線の下");
+      if (!state.observerIsDark)      blockers.push("観測地がまだ明るい");
+      if (!state.satelliteSunlit)     blockers.push("衛星が太陽に照らされていない");
+      if (state.satelliteInEarthShadow) blockers.push("衛星が地球影の中");
+
+      if (state.visuallyObservable) {
+        setVisibility("true", "✅ 肉眼可視の可能性が高いです",
+          "仰角10°以上・観測地が暗い・衛星が太陽照射中・地球影の外、の条件を満たしています。");
+      } else if (state.elevation >= 0) {
+        setVisibility("low", "⚠️ 幾何学的には地平線上です",
+          `ただし、肉眼可視条件は未達です。理由: ${blockers.join(" / ")}`);
+      } else {
+        setVisibility("false", "❌ 見えません",
+          `衛星は地平線の下です。\nその他条件: ${blockers.join(" / ")}`);
+      }
+    }
+
+    function setVisibility(type, message, note) {
+      const visCard = $("visibility-card");
+      visCard.className = type === "true"  ? "card visible-true"
+                        : type === "low"   ? "card visible-low"
+                        : type === "error" ? "card visible-error"
+                        :                    "card visible-false";
+      $("vis-status").innerHTML = message;
+      $("vis-note").innerText   = note || "";
+    }
+
+    // ─────────────────────────────────────────────
+    // 軌道線描画
+    // ─────────────────────────────────────────────
+    function drawOrbitLine(now) {
+      if (!currentSatrec) return;
+      clearOrbitLines();
+
+      const sat      = SATELLITES[currentKey];
+      // QZSS は周期が長いので720分（12h分）描画
+      const minutes  = sat.orbitType === "qzss" ? 720 : 120;
+      const segments = [];
+      let currentSeg = [];
+      let prevLng    = null;
+
+      for (let i = 0; i <= minutes; i++) {
+        const date  = new Date(now.getTime() + i * 60 * 1000);
+        const state = getSatelliteState(date);
+        if (!state) continue;
+
+        const { satLat: lat, satLng: lng } = state;
+        if (prevLng !== null && Math.abs(lng - prevLng) > 180) {
+          if (currentSeg.length > 1) segments.push(currentSeg);
+          currentSeg = [];
+        }
+        currentSeg.push([lat, lng]);
+        prevLng = lng;
+      }
+      if (currentSeg.length > 1) segments.push(currentSeg);
+
+      segments.forEach(seg => {
+        const line = L.polyline(seg, {
+          color: "#f43f5e", weight: 2, opacity: 0.55, dashArray: "5,5"
+        }).addTo(map);
+        orbitLines.push(line);
+      });
+    }
+
+    function clearOrbitLines() {
+      orbitLines.forEach(l => map.removeLayer(l));
+      orbitLines = [];
+    }
+
+    // ─────────────────────────────────────────────
+    // TLE UI 更新
+    // ─────────────────────────────────────────────
+    function updateTleUi(tle) {
+      const checksumOk = validateTleChecksum(tle.tle1) && validateTleChecksum(tle.tle2);
+      let checksumLabel = "NG / 要確認";
+      if (checksumOk) {
+        checksumLabel = "OK";
+      } else if (tle.source.includes("フォールバック")) {
+        checksumLabel = "NG / フォールバックのため参考値";
+      } else if (tle.source.includes("手動")) {
+        checksumLabel = "NG / 手動TLEを確認";
+      }
+
+      const epochDate = parseTleEpoch(tle.tle1);
+      setTleStatus(
+        tle.source,
+        checksumLabel,
+        formatDateTime(new Date(tle.loadedAt || Date.now())),
+        epochDate ? formatDateTime(epochDate) : "-"
+      );
+      $("tle-name").innerText = tle.name;
+    }
+
+    function setTleStatus(source, checksum, updated, epoch) {
+      $("tle-source").innerText   = source;
+      $("tle-checksum").innerText = checksum;
+      $("tle-updated").innerText  = updated;
+      $("tle-epoch").innerText    = epoch;
+      $("tle-checksum").className = checksum === "OK" ? "ok-text" : checksum === "-" ? "" : "warn-text";
+    }
+
+    function parseTleEpoch(tle1) {
+      try {
+        const epochYear = Number(tle1.slice(18, 20));
+        const epochDay  = Number(tle1.slice(20, 32));
+        if (isNaN(epochYear) || isNaN(epochDay)) return null;
+        const fullYear = epochYear < 57 ? 2000 + epochYear : 1900 + epochYear;
+        const start    = new Date(Date.UTC(fullYear, 0, 1));
+        return new Date(start.getTime() + (epochDay - 1) * 86400000);
+      } catch { return null; }
+    }
+
+    function validateTleChecksum(line) {
+      if (!line || line.length < 69) return false;
+      const expected = Number(line[68]);
+      if (isNaN(expected)) return false;
+      let sum = 0;
+      for (let i = 0; i < 68; i++) {
+        const c = line[i];
+        if (c >= "0" && c <= "9") sum += Number(c);
+        else if (c === "-") sum += 1;
+      }
+      return sum % 10 === expected;
+    }
+
+    // ─────────────────────────────────────────────
+    // 手動TLE適用
+    // ─────────────────────────────────────────────
+    function applyManualTle() {
+      const text   = $("manual-tle-text").value.trim();
+      const parsed = parseTleText(text, "手動入力");
+      if (!parsed) {
+        alert("TLE形式を確認してください。3行形式、またはTLE 2行形式が必要です。");
+        return;
+      }
+      currentTle    = parsed;
+      currentSatrec = buildSatrec(currentTle);
+      if (!currentSatrec) return;
+
+      saveTleToCache(currentKey, currentTle);
+      updateCacheBanner();
+      updateTleUi(currentTle);
+      clearOrbitLines();
+      lastOrbitDrawAt    = 0;
+      lastNextPassCalcAt = 0;
+      $("tle-accuracy-warning").style.display = "none";
+      updateTracker();
+      alert("手動TLEを適用しました。");
+    }
+
+    function parseTleText(text, source) {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) return null;
+
+      let name, tle1, tle2;
+      if (lines[0].startsWith("1 ") && lines[1].startsWith("2 ")) {
+        name = "UNKNOWN SATELLITE"; tle1 = lines[0]; tle2 = lines[1];
+      } else if (lines.length >= 3) {
+        name = lines[0]; tle1 = lines[1]; tle2 = lines[2];
+      } else {
+        return null;
+      }
+
+      if (!tle1.startsWith("1 ") || !tle2.startsWith("2 ")) return null;
+      return { name, tle1, tle2, source, loadedAt: new Date().toISOString() };
+    }
+
+    function buildSatrec(tle) {
+      try {
+        return satellite.twoline2satrec(tle.tle1, tle.tle2);
+      } catch (err) {
+        console.error("satrec生成に失敗:", err);
+        setVisibility("error", "⚠️ TLEエラー", "TLEから軌道データを生成できませんでした。");
+        return null;
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 太陽・地球影計算
+    // ─────────────────────────────────────────────
+    function getSunState(date, gmst, observerGd, satelliteEciKm) {
+      const sunEciKm    = getApproxSunEciKm(date);
+      const sunEcfKm    = satellite.eciToEcf(sunEciKm, gmst);
+      const sunLookAng  = satellite.ecfToLookAngles(observerGd, sunEcfKm);
+      const sunElevation = toDegrees(sunLookAng.elevation);
+      const inShadow    = isSatelliteInEarthShadow(satelliteEciKm, sunEciKm);
+      return {
+        sunElevation,
+        observerIsDark: sunElevation <= OBSERVER_DARK_SUN_EL_DEG,
+        satelliteInEarthShadow: inShadow,
+        satelliteSunlit: !inShadow
+      };
+    }
+
+    function getApproxSunEciKm(date) {
+      const jd  = date.getTime() / 86400000 + 2440587.5;
+      const n   = jd - 2451545.0;
+      const ML  = normalizeDegrees(280.460 + 0.9856474 * n);
+      const MA  = normalizeDegrees(357.528 + 0.9856003 * n);
+      const g   = toRadians(MA);
+      const ecl = normalizeDegrees(ML + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g));
+      const lam = toRadians(ecl);
+      const obl = toRadians(23.439 - 0.0000004 * n);
+      const d   = (1.00014 - 0.01671 * Math.cos(g) - 0.00014 * Math.cos(2*g)) * ASTRONOMICAL_UNIT_KM;
+      return {
+        x: d * Math.cos(lam),
+        y: d * Math.cos(obl) * Math.sin(lam),
+        z: d * Math.sin(obl) * Math.sin(lam)
+      };
+    }
+
+    function isSatelliteInEarthShadow(satEci, sunEci) {
+      const sat  = [satEci.x, satEci.y, satEci.z];
+      const sun  = [sunEci.x, sunEci.y, sunEci.z];
+      const sLen = Math.sqrt(sun[0]**2 + sun[1]**2 + sun[2]**2);
+      const sUnit = sun.map(v => v / sLen);
+      const proj  = sat[0]*sUnit[0] + sat[1]*sUnit[1] + sat[2]*sUnit[2];
+      if (proj > 0) return false;
+      const perp  = sat.map((v,i) => v - sUnit[i] * proj);
+      const dist  = Math.sqrt(perp[0]**2 + perp[1]**2 + perp[2]**2);
+      return dist < EARTH_RADIUS_KM;
+    }
+
+    // ─────────────────────────────────────────────
+    // GPS取得
+    // ─────────────────────────────────────────────
+    function getGPSLocation() {
+      if (!navigator.geolocation) {
+        alert("お使いのブラウザは位置情報取得に対応していません。");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          observerCoords.lat = pos.coords.latitude;
+          observerCoords.lng = pos.coords.longitude;
+          observerCoords.alt = typeof pos.coords.altitude === "number" ? pos.coords.altitude / 1000 : 0.0;
+          stationMarker.setLatLng([observerCoords.lat, observerCoords.lng]);
+          stationMarker.bindPopup("観測地点 / GPS取得値").openPopup();
+          $("station-coords").innerText =
+            `${observerCoords.lat.toFixed(4)}, ${observerCoords.lng.toFixed(4)}, ${observerCoords.alt.toFixed(3)} km`;
+          map.panTo([observerCoords.lat, observerCoords.lng]);
+          lastNextPassCalcAt = 0;
+          updateTracker();
+        },
+        err => {
+          console.warn(err);
+          alert("位置情報の取得に失敗しました。デフォルトの東京を使用します。");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // ユーティリティ
+    // ─────────────────────────────────────────────
+    function getCompassDirection(az) {
+      const dirs = ["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
+      return dirs[Math.round(az / 22.5) % 16];
+    }
+
+    function formatDateTime(date) {
+      return date.toLocaleString("ja-JP", {
+        year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit"
+      });
+    }
+
+    const toRadians = d => d * Math.PI / 180;
+    const toDegrees = r => r * 180 / Math.PI;
+
+    function normalizeAzimuth(d)  { return ((d % 360) + 360) % 360; }
+    function normalizeDegrees(d)  { return ((d % 360) + 360) % 360; }
+    function normalizeLongitude(d){ return ((d + 180) % 360 + 360) % 360 - 180; }
+
+  </script>
+</body>
+</html>
