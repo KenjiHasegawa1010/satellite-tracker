@@ -67,7 +67,7 @@
       min-height: 40px;
     }
 
-    select, button, textarea {
+    select, button, textarea, input {
       background: #1f2937;
       color: var(--text-color);
       border: 1px solid var(--accent-blue);
@@ -89,6 +89,27 @@
       font-size: 0.8rem;
       resize: vertical;
       border-color: #374151;
+    }
+
+    input {
+      width: 100%;
+      padding: 8px 10px;
+      border-color: #374151;
+      box-sizing: border-box;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .input-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 4px;
     }
 
     button:hover, select:hover { background: #374151; }
@@ -335,6 +356,10 @@
         flex: 1 1 180px;
       }
 
+      .input-grid {
+        grid-template-columns: 1fr;
+      }
+
       #main-container { flex-direction: column; }
       #map { min-height: 54vh; }
       #sidebar { max-width: none; min-width: auto; }
@@ -433,7 +458,31 @@
       <div class="card">
         <div class="card-title">観測地点 / Observer Station</div>
         <div id="station-coords" class="card-value" style="font-size:1.05rem;">35.6895, 139.6917, 0.000 km</div>
-        <div class="small-note">初期値は東京です。GPS取得後、現在地に切り替わります。</div>
+        <div id="location-status" class="small-note">初期値は東京です。GPS取得後、現在地に切り替わります。</div>
+
+        <div class="input-grid">
+          <div>
+            <div class="input-label">緯度 / Lat</div>
+            <input id="observer-lat-input" type="number" step="0.0001" value="35.6895" />
+          </div>
+          <div>
+            <div class="input-label">経度 / Lng</div>
+            <input id="observer-lng-input" type="number" step="0.0001" value="139.6917" />
+          </div>
+          <div>
+            <div class="input-label">高度km / Alt</div>
+            <input id="observer-alt-input" type="number" step="0.001" value="0.000" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="observer-apply-button" class="secondary">📌 観測地点を適用</button>
+          <button id="tokyo-button" class="secondary">東京に戻す</button>
+        </div>
+
+        <div class="small-note" style="margin-top:8px;">
+          位置情報がブロックされた場合は、緯度・経度を手入力して使えます。GitHub PagesなどHTTPS環境で開くとGPS取得が成功しやすくなります。
+        </div>
       </div>
 
       <!-- 改善②：QZS精度警告 -->
@@ -651,6 +700,8 @@
       });
 
       $("gps-button").addEventListener("click", getGPSLocation);
+      $("observer-apply-button").addEventListener("click", applyObserverInputs);
+      $("tokyo-button").addEventListener("click", () => setObserverLocation(35.6895, 139.6917, 0.0, "東京に戻しました。"));
 
       $("tle-button").addEventListener("click", async () => {
         await loadSatellite(currentKey, true, { forceRefresh: true });
@@ -1314,29 +1365,104 @@
     // ─────────────────────────────────────────────
     // GPS取得
     // ─────────────────────────────────────────────
-    function getGPSLocation() {
-      if (!navigator.geolocation) {
-        alert("お使いのブラウザは位置情報取得に対応していません。");
+    function setLocationStatus(message, type = "info") {
+      const el = $("location-status");
+      if (!el) return;
+      el.textContent = message;
+      el.classList.remove("ok-text", "warn-text", "bad-text");
+      if (type === "ok") el.classList.add("ok-text");
+      if (type === "warn") el.classList.add("warn-text");
+      if (type === "bad") el.classList.add("bad-text");
+    }
+
+    function syncObserverInputs() {
+      $("observer-lat-input").value = observerCoords.lat.toFixed(4);
+      $("observer-lng-input").value = observerCoords.lng.toFixed(4);
+      $("observer-alt-input").value = observerCoords.alt.toFixed(3);
+    }
+
+    function setObserverLocation(lat, lng, alt = 0.0, message = "観測地点を更新しました。") {
+      observerCoords.lat = lat;
+      observerCoords.lng = lng;
+      observerCoords.alt = alt;
+
+      stationMarker.setLatLng([observerCoords.lat, observerCoords.lng]);
+      stationMarker.bindPopup("観測地点 / Observer Station").openPopup();
+      $("station-coords").innerText =
+        `${observerCoords.lat.toFixed(4)}, ${observerCoords.lng.toFixed(4)}, ${observerCoords.alt.toFixed(3)} km`;
+
+      syncObserverInputs();
+      setLocationStatus(message, "ok");
+      map.panTo([observerCoords.lat, observerCoords.lng]);
+      lastNextPassCalcAt = 0;
+      updateTracker();
+    }
+
+    function applyObserverInputs() {
+      const lat = Number($("observer-lat-input").value);
+      const lng = Number($("observer-lng-input").value);
+      const alt = Number($("observer-alt-input").value || 0);
+
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+        setLocationStatus("緯度は -90〜90 の範囲で入力してください。", "bad");
         return;
       }
+      if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+        setLocationStatus("経度は -180〜180 の範囲で入力してください。", "bad");
+        return;
+      }
+      if (!Number.isFinite(alt) || alt < -1 || alt > 20) {
+        setLocationStatus("高度は km 単位で、通常は 0〜数km 程度を入力してください。", "bad");
+        return;
+      }
+
+      setObserverLocation(lat, lng, alt, "手入力した観測地点を適用しました。");
+    }
+
+    function describeGeolocationError(err) {
+      if (!err) return "位置情報の取得に失敗しました。";
+      if (err.code === 1) return "位置情報の利用がブラウザでブロックされました。アドレスバー左の権限設定で位置情報を許可するか、緯度・経度を手入力してください。";
+      if (err.code === 2) return "端末が現在地を特定できませんでした。Wi-Fi/GPS設定を確認するか、緯度・経度を手入力してください。";
+      if (err.code === 3) return "位置情報の取得がタイムアウトしました。もう一度試すか、緯度・経度を手入力してください。";
+      return "位置情報の取得に失敗しました。緯度・経度を手入力してください。";
+    }
+
+    // ─────────────────────────────────────────────
+    // GPS取得
+    // ─────────────────────────────────────────────
+    function getGPSLocation() {
+      if (!navigator.geolocation) {
+        setLocationStatus("お使いのブラウザは位置情報取得に対応していません。緯度・経度を手入力してください。", "bad");
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        setLocationStatus("位置情報はHTTPSまたはlocalhostでのみ利用できます。GitHub Pagesの公開URL、またはlocalhostで開いてください。", "bad");
+        return;
+      }
+
+      const gpsButton = $("gps-button");
+      gpsButton.disabled = true;
+      gpsButton.textContent = "📍 取得中...";
+      setLocationStatus("位置情報を取得しています。ブラウザの許可ダイアログが出たら「許可」を選んでください。", "warn");
+
       navigator.geolocation.getCurrentPosition(
         pos => {
-          observerCoords.lat = pos.coords.latitude;
-          observerCoords.lng = pos.coords.longitude;
-          observerCoords.alt = typeof pos.coords.altitude === "number" ? pos.coords.altitude / 1000 : 0.0;
-          stationMarker.setLatLng([observerCoords.lat, observerCoords.lng]);
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const alt = typeof pos.coords.altitude === "number" ? pos.coords.altitude / 1000 : 0.0;
+          setObserverLocation(lat, lng, alt, "GPSから現在地を取得しました。");
           stationMarker.bindPopup("観測地点 / GPS取得値").openPopup();
-          $("station-coords").innerText =
-            `${observerCoords.lat.toFixed(4)}, ${observerCoords.lng.toFixed(4)}, ${observerCoords.alt.toFixed(3)} km`;
-          map.panTo([observerCoords.lat, observerCoords.lng]);
-          lastNextPassCalcAt = 0;
-          updateTracker();
+          gpsButton.disabled = false;
+          gpsButton.textContent = "📍 現在地を取得";
         },
         err => {
           console.warn(err);
-          alert("位置情報の取得に失敗しました。デフォルトの東京を使用します。");
+          setLocationStatus(describeGeolocationError(err), "warn");
+          gpsButton.disabled = false;
+          gpsButton.textContent = "📍 現在地を取得";
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 }
       );
     }
 
