@@ -1148,10 +1148,10 @@
         setVisibility("true", "✅ 肉眼可視の可能性が高いです",
           "仰角10°以上・観測地が暗い・衛星が太陽照射中・地球影の外、の条件を満たしています。");
       } else if (state.elevation >= 0) {
-        setVisibility("low", "⚠️ 幾何学的には地平線上です",
+        setVisibility("low", "⚠️ 地平線上です",
           `ただし、肉眼可視条件は未達です。理由: ${blockers.join(" / ")}`);
       } else {
-        setVisibility("false", "❌ 見えません",
+        setVisibility("false", "現在は見えません",
           `衛星は地平線の下です。\nその他条件: ${blockers.join(" / ")}`);
       }
     }
